@@ -9,6 +9,7 @@ import ReportRepair from './pages/ReportRepair';
 import FacilityManagement from './pages/FacilityManagement';
 import Statistics from './pages/Statistics';
 import Workbench from './pages/Workbench';
+import DutyBoard from './pages/DutyBoard';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { currentUser } = useAppStore();
@@ -46,7 +47,7 @@ function RedirectBasedOnRole() {
       if (currentUser.role === 'worker') {
         navigate('/workbench', { replace: true });
       } else {
-        navigate('/orders', { replace: true });
+        navigate('/board', { replace: true });
       }
     } else {
       navigate('/login', { replace: true });
@@ -63,6 +64,14 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/report/:facilityId" element={<ReportRepair />} />
         <Route path="/" element={<RedirectBasedOnRole />} />
+        <Route
+          path="/board"
+          element={
+            <AdminRoute>
+              <DutyBoard />
+            </AdminRoute>
+          }
+        />
         <Route
           path="/orders"
           element={

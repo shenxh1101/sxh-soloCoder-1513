@@ -14,12 +14,32 @@ export interface Facility {
   repairCount?: number;
 }
 
+export type OperationType = 'submit' | 'assign' | 'start' | 'note' | 'photo' | 'complete' | 'urgent';
+
 export interface TimelineEvent {
   status: OrderStatus;
   label: string;
   time: string;
   description: string;
   icon: string;
+}
+
+export interface OrderOperation {
+  id: string;
+  orderId: string;
+  type: OperationType;
+  operatorName: string;
+  operatorRole?: string;
+  note?: string;
+  photo?: string;
+  createdAt: string;
+}
+
+export interface ProcessPhoto {
+  id: string;
+  photo: string;
+  note?: string;
+  createdAt: string;
 }
 
 export interface RepairOrder {
@@ -42,8 +62,11 @@ export interface RepairOrder {
   startedAt?: string;
   completedAt?: string;
   isOverdue?: boolean;
+  isNearOverdue?: boolean;
   expectedCompletion?: string;
   timeline?: TimelineEvent[];
+  operations?: OrderOperation[];
+  processPhotos?: ProcessPhoto[];
 }
 
 export interface WorkerWorkload {
@@ -79,6 +102,7 @@ export interface Statistics {
   totalOrders: number;
   pendingOrders: number;
   overdueOrders: number;
+  nearOverdueOrders: number;
   completedToday: number;
   avgRepairHours: number;
 }
@@ -87,6 +111,16 @@ export interface StatisticsQuery {
   facilityType?: FacilityType;
   month?: string;
   location?: string;
+  timeRange?: '7d' | '30d' | 'month' | 'all';
+}
+
+export type HotspotTimeRange = '7d' | '30d' | 'month';
+
+export interface HotspotData {
+  topLocations: { location: string; count: number }[];
+  topFacilityTypes: { facilityType: FacilityType; facilityTypeLabel: string; count: number }[];
+  topFacilities: { facilityId: string; facilityName: string; count: number }[];
+  timeRange: HotspotTimeRange;
 }
 
 export interface CreateFacilityRequest {

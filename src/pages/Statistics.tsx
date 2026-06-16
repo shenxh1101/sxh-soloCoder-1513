@@ -28,10 +28,12 @@ import {
   Layers,
   Calendar,
   AlertTriangle,
+  Flame,
+  ChevronRight,
 } from 'lucide-react';
 import { api } from '../utils/api';
 import { useAppStore } from '../store';
-import type { Statistics as StatsType, FacilityType, StatisticsQuery } from '../../shared/types';
+import type { Statistics as StatsType, FacilityType, StatisticsQuery, HotspotData, HotspotTimeRange } from '../../shared/types';
 import { FACILITY_TYPE_LABELS } from '../../shared/types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -49,25 +51,32 @@ const FACILITY_COLORS = [
   '#ec4899',
 ];
 
-const MONTH_OPTIONS = [
-  { value: '', label: '全部月份' },
-  { value: '2025-01', label: '2025年1月' },
-  { value: '2025-02', label: '2025年2月' },
-  { value: '2025-03', label: '2025年3月' },
-  { value: '2025-04', label: '2025年4月' },
-  { value: '2025-05', label: '2025年5月' },
-  { value: '2025-06', label: '2025年6月' },
-  { value: '2025-07', label: '2025年7月' },
-  { value: '2025-08', label: '2025年8月' },
-  { value: '2025-09', label: '2025年9月' },
-  { value: '2025-10', label: '2025年10月' },
-  { value: '2025-11', label: '2025年11月' },
-  { value: '2025-12', label: '2025年12月' },
+const generateMonthOptions = () => {
+  const options = [{ value: '', label: '全部月份' }];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const val = d.toISOString().slice(0, 7);
+    const label = `${d.getFullYear()}年${d.getMonth() + 1}月`;
+    options.push({ value: val, label });
+  }
+  return options;
+};
+
+const MONTH_OPTIONS = generateMonthOptions();
+
+const TIME_RANGE_OPTIONS: { value: HotspotTimeRange; label: string }[] = [
+  { value: '7d', label: '最近7天' },
+  { value: '30d', label: '最近30天' },
+  { value: 'month', label: '本月' },
 ];
 
 export default function Statistics() {
   const [loading, setLoading] = useState(false);
+  const [hotspotLoading, setHotspotLoading] = useState(false);
   const { statistics, setStatistics } = useAppStore();
+  const [hotspot, setHotspot] = useState<HotspotData | null>(null);
+  const [timeRange, setTimeRange] = useState<HotspotTimeRange>('7d');
   const [filters, setFilters] = useState<StatisticsQuery>({
     facilityType: undefined,
     month: undefined,
@@ -80,7 +89,7 @@ export default function Statistics() {
     try {
       const data = await api.statistics.get(query);
       setStatistics(data);
-      if (data.locationRanking) {
+      if (data.locationRanking && data.locationRanking.length > 0) {
         setAvailableLocations(data.locationRanking.map((item) => item.location));
       }
     } catch (error) {
@@ -90,13 +99,30 @@ export default function Statistics() {
     }
   };
 
+  const fetchHotspot = async (range: HotspotTimeRange) => {
+    setHotspotLoading(true);
+    try {
+      const data = await api.statistics.getHotspot(range);
+      setHotspot(data);
+    } catch (error) {
+      console.error('获取热点数据失败:', error);
+    } finally {
+      setHotspotLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    fetchHotspot(timeRange);
   }, []);
 
   useEffect(() => {
     fetchData(filters);
   }, [filters]);
+
+  useEffect(() => {
+    fetchHotspot(timeRange);
+  }, [timeRange]);
 
   const handleFilterChange = (key: keyof StatisticsQuery, value: string | undefined) => {
     setFilters((prev) => ({
@@ -115,39 +141,41 @@ export default function Statistics() {
 
   const hasActiveFilters = filters.facilityType || filters.month || filters.location;
 
-  const statusChartData = statistics?.statusDistribution.map((item) => ({
-    name: item.label,
-    value: item.count,
-    status: item.status,
-  })) || [];
+  const statusChartData = (statistics?.statusDistribution || [])
+    .filter((item) => item.count > 0)
+    .map((item) => ({
+      name: item.label,
+      value: item.count,
+      status: item.status,
+    }));
 
-  const facilityChartData = statistics?.facilityRanking.map((item) => ({
+  const facilityChartData = (statistics?.facilityRanking || []).slice(0, 10).map((item) => ({
     name: item.facilityName.length > 8 ? item.facilityName.slice(0, 8) + '...' : item.facilityName,
     fullName: item.facilityName,
     count: item.count,
-  })) || [];
+  }));
 
-  const facilityTypeChartData = statistics?.facilityTypeRanking.map((item) => ({
+  const facilityTypeChartData = (statistics?.facilityTypeRanking || []).map((item) => ({
     name: item.facilityTypeLabel,
     count: item.count,
-  })) || [];
+  }));
 
-  const locationChartData = statistics?.locationRanking.map((item) => ({
+  const locationChartData = (statistics?.locationRanking || []).slice(0, 10).map((item) => ({
     name: item.location.length > 8 ? item.location.slice(0, 8) + '...' : item.location,
     fullName: item.location,
     count: item.count,
-  })) || [];
+  }));
 
-  const workerChartData = statistics?.workerEfficiency.map((item) => ({
+  const workerChartData = (statistics?.workerEfficiency || []).map((item) => ({
     name: item.workerName,
     avgHours: item.avgRepairHours,
     completed: item.completedCount,
-  })) || [];
+  }));
 
-  const monthlyTrendData = statistics?.monthlyTrend.map((item) => ({
+  const monthlyTrendData = (statistics?.monthlyTrend || []).map((item) => ({
     name: item.month,
     count: item.count,
-  })) || [];
+  }));
 
   return (
     <div className="space-y-6">
@@ -157,14 +185,138 @@ export default function Statistics() {
           <p className="text-gray-500 mt-1">设施报修数据概览</p>
         </div>
         <button
-          onClick={() => fetchData(filters)}
-          disabled={loading}
+          onClick={() => {
+            fetchData(filters);
+            fetchHotspot(timeRange);
+          }}
+          disabled={loading || hotspotLoading}
           className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={'w-5 h-5 ' + ((loading || hotspotLoading) ? 'animate-spin' : '')} />
         </button>
       </div>
 
+      {/* 问题热点视图 */}
+      <div className="bg-gradient-to-br from-orange-50 to-red-50 rounded-xl border border-orange-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+              <Flame className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">问题热点视图</h3>
+              <p className="text-xs text-gray-500">方便早会快速查看重点问题</p>
+            </div>
+          </div>
+          <div className="flex gap-1 bg-white rounded-lg p-1 border border-orange-200">
+            {TIME_RANGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setTimeRange(opt.value)}
+                className={
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' +
+                  (timeRange === opt.value
+                    ? 'bg-orange-500 text-white'
+                    : 'text-gray-600 hover:bg-orange-50')
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {hotspotLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500 mb-3 flex items-center gap-1">
+                <MapPin className="w-4 h-4 text-red-500" />
+                报修最多的区域
+              </p>
+              {hotspot?.topLocations.length === 0 ? (
+                <p className="text-sm text-gray-400">暂无数据</p>
+              ) : (
+                <div className="space-y-2">
+                  {hotspot?.topLocations.map((loc, idx) => (
+                    <div key={loc.location} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={
+                          'w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ' +
+                          (idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-500 text-white' : idx === 2 ? 'bg-yellow-500 text-white' : 'bg-gray-200 text-gray-600')
+                        }>
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-gray-700 truncate max-w-[140px]">{loc.location}</span>
+                      </div>
+                      <span className="text-sm font-semibold text-red-600">{loc.count}单</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500 mb-3 flex items-center gap-1">
+                <Layers className="w-4 h-4 text-blue-500" />
+                报修最多的设备类型
+              </p>
+              {hotspot?.topFacilityTypes.length === 0 ? (
+                <p className="text-sm text-gray-400">暂无数据</p>
+              ) : (
+                <div className="space-y-2">
+                  {hotspot?.topFacilityTypes.map((ft, idx) => (
+                    <div key={ft.facilityType} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={
+                          'w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ' +
+                          (idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-500 text-white' : idx === 2 ? 'bg-yellow-500 text-white' : 'bg-gray-200 text-gray-600')
+                        }>
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-gray-700">{ft.facilityTypeLabel}</span>
+                      </div>
+                      <span className="text-sm font-semibold text-blue-600">{ft.count}单</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <p className="text-sm text-gray-500 mb-3 flex items-center gap-1">
+                <Wrench className="w-4 h-4 text-purple-500" />
+                报修最多的设施
+              </p>
+              {hotspot?.topFacilities.length === 0 ? (
+                <p className="text-sm text-gray-400">暂无数据</p>
+              ) : (
+                <div className="space-y-2">
+                  {hotspot?.topFacilities.map((f, idx) => (
+                    <div key={f.facilityId} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={
+                          'w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ' +
+                          (idx === 0 ? 'bg-red-500 text-white' : idx === 1 ? 'bg-orange-500 text-white' : idx === 2 ? 'bg-yellow-500 text-white' : 'bg-gray-200 text-gray-600')
+                        }>
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-gray-700 truncate max-w-[140px]">{f.facilityName}</span>
+                      </div>
+                      <span className="text-sm font-semibold text-purple-600">{f.count}单</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 筛选器 */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="flex items-center gap-2 mb-4">
           <Filter className="w-5 h-5 text-gray-500" />
@@ -178,7 +330,7 @@ export default function Statistics() {
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-1">
               <Layers className="w-4 h-4" />
@@ -232,22 +384,11 @@ export default function Statistics() {
               ))}
             </select>
           </div>
-          <div className="flex items-end">
-            <div className="text-sm text-gray-500">
-              {hasActiveFilters ? (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-700 rounded">
-                  <CheckCircle2 className="w-4 h-4" />
-                  已筛选数据
-                </span>
-              ) : (
-                <span className="text-gray-400">显示全部数据</span>
-              )}
-            </div>
-          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
           <div className="flex items-center justify-between">
             <div>
@@ -297,6 +438,7 @@ export default function Statistics() {
         </div>
       </div>
 
+      {/* 图表区域 */}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -316,7 +458,7 @@ export default function Statistics() {
               <LineChart data={monthlyTrendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <Tooltip formatter={(value: number) => [`${value} 单`, '报修数量']} />
                 <Line
                   type="monotone"
@@ -387,14 +529,14 @@ export default function Statistics() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={locationChartData.slice(0, 10)} layout="vertical">
+              <BarChart data={locationChartData} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <XAxis type="number" tick={{ fontSize: 12 }} allowDecimals={false} />
                 <YAxis
                   dataKey="name"
                   type="category"
                   tick={{ fontSize: 12 }}
-                  width={80}
+                  width={90}
                 />
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
@@ -423,14 +565,14 @@ export default function Statistics() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={facilityChartData.slice(0, 10)} layout="vertical">
+              <BarChart data={facilityChartData} layout="vertical" margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis type="number" tick={{ fontSize: 12 }} />
+                <XAxis type="number" tick={{ fontSize: 12 }} allowDecimals={false} />
                 <YAxis
                   dataKey="name"
                   type="category"
                   tick={{ fontSize: 12 }}
-                  width={80}
+                  width={90}
                 />
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
@@ -465,6 +607,7 @@ export default function Statistics() {
                 <YAxis
                   tick={{ fontSize: 12 }}
                   label={{ value: '小时', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
+                  allowDecimals={false}
                 />
                 <Tooltip
                   formatter={(value: number) => [`${value} 小时`, '平均维修时间']}
@@ -483,6 +626,10 @@ export default function Statistics() {
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : statusChartData.length === 0 ? (
+            <div className="flex items-center justify-center h-64 text-gray-400">
+              暂无数据
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
@@ -521,7 +668,7 @@ export default function Statistics() {
             <div className="flex items-center justify-center h-64">
               <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : statistics?.workerEfficiency.length === 0 ? (
+          ) : !statistics?.workerEfficiency || statistics.workerEfficiency.length === 0 ? (
             <div className="flex items-center justify-center h-64 text-gray-400">
               暂无数据
             </div>
@@ -538,7 +685,7 @@ export default function Statistics() {
                   </tr>
                 </thead>
                 <tbody>
-                  {statistics?.workerEfficiency.map((worker, index) => {
+                  {statistics.workerEfficiency.map((worker, index) => {
                     const avgHours = worker.avgRepairHours;
                     let rating = '一般';
                     let ratingColor = 'bg-gray-100 text-gray-700';
@@ -560,15 +707,16 @@ export default function Statistics() {
                       <tr key={worker.workerId} className="border-b border-gray-50 hover:bg-gray-50">
                         <td className="py-3 px-2">
                           <span
-                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
-                              index === 0
+                            className={
+                              'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ' +
+                              (index === 0
                                 ? 'bg-yellow-100 text-yellow-700'
                                 : index === 1
                                 ? 'bg-gray-100 text-gray-700'
                                 : index === 2
                                 ? 'bg-orange-100 text-orange-700'
-                                : 'bg-gray-50 text-gray-500'
-                            }`}
+                                : 'bg-gray-50 text-gray-500')
+                            }
                           >
                             {index + 1}
                           </span>
@@ -579,7 +727,7 @@ export default function Statistics() {
                           <span className="font-medium text-green-600">{worker.avgRepairHours} 小时</span>
                         </td>
                         <td className="py-3 px-2 text-right">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ratingColor}`}>
+                          <span className={'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ' + ratingColor}>
                             {rating}
                           </span>
                         </td>

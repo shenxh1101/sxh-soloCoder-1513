@@ -12,7 +12,18 @@ import type {
   CreateWorkerRequest,
   LoginRequest,
   LoginResponse,
+  HotspotData,
+  HotspotTimeRange,
 } from '../../shared/types';
+
+export interface BoardData {
+  pending: RepairOrder[];
+  assigned: RepairOrder[];
+  repairing: RepairOrder[];
+  nearOverdue: RepairOrder[];
+  overdue: RepairOrder[];
+  totalCount: number;
+}
 
 const API_BASE = '/api';
 
@@ -62,11 +73,18 @@ export const api = {
       facilityId?: string;
       assigneeId?: string;
       search?: string;
+      location?: string;
     }) => {
       const query = params
         ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : '';
       return request<RepairOrder[]>(`/repair-orders${query}`);
+    },
+    getBoard: (params?: { location?: string; assigneeId?: string }) => {
+      const query = params
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+        : '';
+      return request<BoardData>(`/repair-orders/board${query}`);
     },
     getById: (id: string) => request<RepairOrder>(`/repair-orders/${id}`),
     create: (data: CreateRepairOrderRequest) =>
@@ -74,16 +92,32 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    assign: (id: string, data: AssignOrderRequest) =>
+    assign: (id: string, data: AssignOrderRequest & { operatorName?: string }) =>
       request<RepairOrder>(`/repair-orders/${id}/assign`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    start: (id: string) =>
+    start: (id: string, data?: { operatorName?: string; note?: string }) =>
       request<RepairOrder>(`/repair-orders/${id}/start`, {
         method: 'PUT',
+        body: JSON.stringify(data || {}),
       }),
-    complete: (id: string, data: CompleteOrderRequest) =>
+    addNote: (id: string, data: { operatorName: string; operatorRole?: string; note: string }) =>
+      request<RepairOrder>(`/repair-orders/${id}/note`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    addPhoto: (id: string, data: { operatorName: string; photo: string; description?: string }) =>
+      request<RepairOrder>(`/repair-orders/${id}/photo`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    markUrgent: (id: string, data?: { operatorName?: string }) =>
+      request<RepairOrder>(`/repair-orders/${id}/urgent`, {
+        method: 'PUT',
+        body: JSON.stringify(data || {}),
+      }),
+    complete: (id: string, data: CompleteOrderRequest & { operatorName?: string; note?: string }) =>
       request<RepairOrder>(`/repair-orders/${id}/complete`, {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -122,6 +156,10 @@ export const api = {
         ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
         : '';
       return request<Statistics>(`/statistics${query}`);
+    },
+    getHotspot: (timeRange?: HotspotTimeRange) => {
+      const query = timeRange ? `?timeRange=${timeRange}` : '';
+      return request<HotspotData>(`/statistics/hotspot${query}`);
     },
   },
 

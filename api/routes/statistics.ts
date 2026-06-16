@@ -1,14 +1,45 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { Statistics, STATUS_LABELS, FACILITY_TYPE_LABELS, StatisticsQuery, FacilityType } from '../../shared/types';
+import { Statistics, STATUS_LABELS, FACILITY_TYPE_LABELS, StatisticsQuery, FacilityType, HotspotData, HotspotTimeRange } from '../../shared/types';
 
 const router = Router();
 
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+const buildTimeRangeCondition = (timeRange?: string): { condition: string; params: any[] } => {
+  if (!timeRange || timeRange === 'all') {
+    return { condition: '', params: [] };
+  }
+  
+  const now = Date.now();
+  let startTime: number;
+  
+  switch (timeRange) {
+    case '7d':
+      startTime = now - 7 * 24 * 60 * 60 * 1000;
+      break;
+    case '30d':
+      startTime = now - 30 * 24 * 60 * 60 * 1000;
+      break;
+    case 'month': {
+      const d = new Date();
+      startTime = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+      break;
+    }
+    default:
+      return { condition: '', params: [] };
+  }
+  
+  return {
+    condition: ' AND ro.created_at >= ?',
+    params: [new Date(startTime).toISOString()],
+  };
+};
+
 router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
   try {
-    const { facilityType, month, location } = req.query;
+    const { facilityType, month, location, timeRange } = req.query;
     
-    // 构建 WHERE 条件
     const whereConditions: string[] = [];
     const params: any[] = [];
     
@@ -27,11 +58,16 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       params.push(`%${location}%`);
     }
     
+    const timeRangeResult = buildTimeRangeCondition(timeRange);
+    if (timeRangeResult.condition) {
+      whereConditions.push('1=1' + timeRangeResult.condition);
+      params.push(...timeRangeResult.params);
+    }
+    
     const whereClause = whereConditions.length > 0 
       ? 'WHERE ' + whereConditions.join(' AND ') 
       : '';
-    
-    // 设施报修排行
+
     const facilityRanking = db.prepare(`
       SELECT 
         f.id as facilityId, 
@@ -40,34 +76,32 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
         COUNT(ro.id) as count
       FROM facilities f
       LEFT JOIN repair_orders ro ON f.id = ro.facility_id
-      ${whereClause.replace('ro.', 'ro.').replace('f.', 'f.')}
+      ${whereClause}
       GROUP BY f.id, f.name, f.type
       HAVING count > 0
       ORDER BY count DESC
       LIMIT 10
     `).all(...params) as { facilityId: string; facilityName: string; facilityType: FacilityType; count: number }[];
 
-    // 设施类型排行
     const facilityTypeRanking = db.prepare(`
       SELECT 
         f.type as facilityType,
         COUNT(ro.id) as count
       FROM facilities f
       LEFT JOIN repair_orders ro ON f.id = ro.facility_id
-      ${whereClause.replace('ro.', 'ro.').replace('f.', 'f.')}
+      ${whereClause}
       GROUP BY f.type
       HAVING count > 0
       ORDER BY count DESC
     `).all(...params) as { facilityType: FacilityType; count: number }[];
 
-    // 区域排行（按设施位置分组）
     const locationRanking = db.prepare(`
       SELECT 
         f.location as location,
         COUNT(ro.id) as count
       FROM facilities f
       LEFT JOIN repair_orders ro ON f.id = ro.facility_id
-      ${whereClause.replace('ro.', 'ro.').replace('f.', 'f.')}
+      ${whereClause}
       WHERE f.location IS NOT NULL AND f.location != ''
       GROUP BY f.location
       HAVING count > 0
@@ -75,7 +109,6 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       LIMIT 10
     `).all(...params) as { location: string; count: number }[];
 
-    // 维修效率排行（不受设施筛选影响，显示全局数据）
     const workerEfficiency = db.prepare(`
       SELECT 
         w.id as workerId, 
@@ -97,7 +130,6 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       LIMIT 10
     `).all() as { workerId: string; workerName: string; avgRepairHours: number; completedCount: number }[];
 
-    // 状态分布
     const statusRows = db.prepare(`
       SELECT ro.status, COUNT(*) as count
       FROM repair_orders ro
@@ -115,7 +147,6 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       };
     });
 
-    // 月度趋势（最近6个月）
     const monthlyTrend = db.prepare(`
       SELECT 
         strftime('%Y-%m', ro.created_at) as month,
@@ -130,7 +161,6 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
     
     monthlyTrend.reverse();
 
-    // 总数统计
     const totalOrders = db.prepare(`
       SELECT COUNT(*) as count 
       FROM repair_orders ro
@@ -144,14 +174,25 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       LEFT JOIN facilities f ON ro.facility_id = f.id
       ${whereClause ? whereClause + ' AND ' : 'WHERE '} ro.status IN ('pending', 'assigned', 'repairing')
     `).get(...params) as { count: number };
-    
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    const overdueCount = db.prepare(`
-      SELECT COUNT(*) as count 
+
+    const allNonCompleted = db.prepare(`
+      SELECT ro.created_at
       FROM repair_orders ro
       LEFT JOIN facilities f ON ro.facility_id = f.id
       ${whereClause ? whereClause + ' AND ' : 'WHERE '} ro.status != 'completed'
-    `).get(...params) as { count: number };
+    `).all(...params) as { created_at: string }[];
+    
+    const now = Date.now();
+    let overdueOrders = 0;
+    let nearOverdueOrders = 0;
+    for (const row of allNonCompleted) {
+      const elapsed = now - new Date(row.created_at).getTime();
+      if (elapsed > TWENTY_FOUR_HOURS) {
+        overdueOrders++;
+      } else if (elapsed > 18 * 60 * 60 * 1000) {
+        nearOverdueOrders++;
+      }
+    }
     
     const today = new Date().toISOString().split('T')[0];
     const completedToday = db.prepare(`
@@ -161,7 +202,6 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       ${whereClause ? whereClause + ' AND ' : 'WHERE '} ro.status = 'completed' AND DATE(ro.completed_at) = ?
     `).get(...params, today) as { count: number };
 
-    // 平均维修时长（全局）
     const avgRepairTime = db.prepare(`
       SELECT 
         AVG(
@@ -182,7 +222,7 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       })),
       facilityTypeRanking: facilityTypeRanking.map(ftr => ({
         facilityType: ftr.facilityType,
-        facilityTypeLabel: FACILITY_TYPE_LABELS[ftr.facilityType],
+        facilityTypeLabel: FACILITY_TYPE_LABELS[ftr.facilityType] || '其他',
         count: ftr.count,
       })),
       locationRanking,
@@ -194,7 +234,8 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
       monthlyTrend,
       totalOrders: totalOrders.count,
       pendingOrders: pendingOrders.count,
-      overdueOrders: overdueCount.count,
+      overdueOrders,
+      nearOverdueOrders,
       completedToday: completedToday.count,
       avgRepairHours: Number(avgRepairTime.avgRepairHours?.toFixed(1)) || 0,
     };
@@ -203,6 +244,73 @@ router.get('/', (req: Request<{}, {}, {}, StatisticsQuery>, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: '获取统计数据失败' });
+  }
+});
+
+router.get('/hotspot', (req: Request<{}, {}, {}, { timeRange?: HotspotTimeRange }>, res: Response) => {
+  try {
+    const timeRange = (req.query.timeRange as HotspotTimeRange) || '7d';
+    
+    const timeRangeResult = buildTimeRangeCondition(timeRange);
+    const params = timeRangeResult.params;
+    const whereClause = timeRangeResult.condition ? 'WHERE 1=1' + timeRangeResult.condition : '';
+    
+    const topLocations = db.prepare(`
+      SELECT 
+        f.location as location,
+        COUNT(ro.id) as count
+      FROM facilities f
+      LEFT JOIN repair_orders ro ON f.id = ro.facility_id
+      ${whereClause}
+      WHERE f.location IS NOT NULL AND f.location != ''
+      GROUP BY f.location
+      HAVING count > 0
+      ORDER BY count DESC
+      LIMIT 5
+    `).all(...params) as { location: string; count: number }[];
+    
+    const topFacilityTypes = db.prepare(`
+      SELECT 
+        f.type as facilityType,
+        COUNT(ro.id) as count
+      FROM facilities f
+      LEFT JOIN repair_orders ro ON f.id = ro.facility_id
+      ${whereClause}
+      GROUP BY f.type
+      HAVING count > 0
+      ORDER BY count DESC
+      LIMIT 5
+    `).all(...params) as { facilityType: FacilityType; count: number }[];
+    
+    const topFacilities = db.prepare(`
+      SELECT 
+        f.id as facilityId,
+        f.name as facilityName,
+        COUNT(ro.id) as count
+      FROM facilities f
+      LEFT JOIN repair_orders ro ON f.id = ro.facility_id
+      ${whereClause}
+      GROUP BY f.id, f.name
+      HAVING count > 0
+      ORDER BY count DESC
+      LIMIT 5
+    `).all(...params) as { facilityId: string; facilityName: string; count: number }[];
+    
+    const hotspot: HotspotData = {
+      topLocations,
+      topFacilityTypes: topFacilityTypes.map(t => ({
+        facilityType: t.facilityType,
+        facilityTypeLabel: FACILITY_TYPE_LABELS[t.facilityType] || '其他',
+        count: t.count,
+      })),
+      topFacilities,
+      timeRange,
+    };
+    
+    res.json(hotspot);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: '获取热点数据失败' });
   }
 });
 

@@ -9,6 +9,7 @@ import {
   X,
   LogOut,
   User,
+  ClipboardCheck,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
@@ -18,6 +19,7 @@ interface LayoutProps {
 }
 
 const navItems = [
+  { path: '/board', icon: ClipboardCheck, label: '值班看板', roles: ['admin'] },
   { path: '/orders', icon: LayoutDashboard, label: '报修单列表', roles: ['admin', 'worker'] },
   { path: '/facilities', icon: Building2, label: '设施管理', roles: ['admin'] },
   { path: '/statistics', icon: BarChart3, label: '统计分析', roles: ['admin'] },

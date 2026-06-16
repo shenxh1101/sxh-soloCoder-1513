@@ -80,6 +80,43 @@ export function initDatabase() {
     // 索引已存在，忽略错误
   }
 
+  // 创建操作记录表
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS order_operations (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('submit', 'assign', 'start', 'note', 'photo', 'complete', 'urgent')),
+        operator_name TEXT NOT NULL,
+        operator_role TEXT,
+        note TEXT,
+        photo TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (order_id) REFERENCES repair_orders(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_operations_order ON order_operations(order_id);
+    `);
+  } catch (e) {
+    // 表已存在，忽略错误
+  }
+
+  // 创建过程照片表
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS order_process_photos (
+        id TEXT PRIMARY KEY,
+        order_id TEXT NOT NULL,
+        photo_url TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (order_id) REFERENCES repair_orders(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_process_photos_order ON order_process_photos(order_id);
+    `);
+  } catch (e) {
+    // 表已存在，忽略错误
+  }
+
   const workerCount = db.prepare('SELECT COUNT(*) as count FROM workers').get() as { count: number };
   if (workerCount.count === 0) {
     const saltRounds = 10;
