@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Clock,
   User,
@@ -11,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   Image as ImageIcon,
+  ExternalLink,
 } from 'lucide-react';
 import type { RepairOrder, Worker } from '../../shared/types';
 import { StatusBadge } from './StatusBadge';
@@ -20,6 +22,7 @@ import { api } from '../utils/api';
 import { useAppStore } from '../store';
 import { Modal } from './Modal';
 import { PhotoUpload } from './PhotoUpload';
+import { AssignOrderModal } from './AssignOrderModal';
 
 interface RepairOrderCardProps {
   order: RepairOrder;
@@ -30,32 +33,16 @@ export function RepairOrderCard({ order, workers }: RepairOrderCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState('');
   const [photoAfter, setPhotoAfter] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
   const { updateRepairOrder, currentUser } = useAppStore();
 
   const overdueInfo = getTimeUntilOverdue(order.createdAt);
 
-  const handleAssign = async () => {
-    if (!selectedWorker) return;
-    const worker = workers.find((w) => w.id === selectedWorker);
-    if (!worker) return;
-
-    try {
-      setLoading(true);
-      const updated = await api.repairOrders.assign(order.id, {
-        assigneeId: worker.id,
-        assigneeName: worker.name,
-      });
-      updateRepairOrder(updated);
-      setShowAssignModal(false);
-      setSelectedWorker('');
-    } catch (error) {
-      alert(error instanceof Error ? error.message : '派单失败');
-    } finally {
-      setLoading(false);
-    }
+  const handleAssigned = (updated: RepairOrder) => {
+    updateRepairOrder(updated);
+    setShowAssignModal(false);
   };
 
   const handleStart = async () => {
@@ -150,20 +137,29 @@ export function RepairOrderCard({ order, workers }: RepairOrderCardProps) {
           )}
 
           <div className="mt-4 flex items-center justify-between">
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              {expanded ? (
-                <>
-                  收起详情 <ChevronUp className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  查看详情 <ChevronDown className="w-4 h-4" />
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                {expanded ? (
+                  <>
+                    收起 <ChevronUp className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    展开 <ChevronDown className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => navigate(`/orders/${order.id}`)}
+                className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                完整详情
+              </button>
+            </div>
 
             <div className="flex gap-2">
               {canAssign && (
@@ -265,47 +261,13 @@ export function RepairOrderCard({ order, workers }: RepairOrderCardProps) {
         )}
       </div>
 
-      <Modal
-        isOpen={showAssignModal}
-        onClose={() => setShowAssignModal(false)}
-        title="派单给维修师傅"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              选择维修师傅
-            </label>
-            <select
-              value={selectedWorker}
-              onChange={(e) => setSelectedWorker(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">请选择</option>
-              {workers.map((worker) => (
-                <option key={worker.id} value={worker.id}>
-                  {worker.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowAssignModal(false)}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleAssign}
-              disabled={!selectedWorker || loading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? '派单中...' : '确认派单'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {showAssignModal && (
+        <AssignOrderModal
+          order={order}
+          onClose={() => setShowAssignModal(false)}
+          onAssigned={handleAssigned}
+        />
+      )}
 
       <Modal
         isOpen={showCompleteModal}

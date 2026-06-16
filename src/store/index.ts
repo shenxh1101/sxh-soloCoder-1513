@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Worker, RepairOrder, Facility, Statistics } from '../../shared/types';
+import type { Worker, RepairOrder, Facility, Statistics, WorkerWorkload } from '../../shared/types';
 
 interface AppState {
   currentUser: Worker | null;
   repairOrders: RepairOrder[];
   facilities: Facility[];
   workers: Worker[];
+  workerWorkloads: WorkerWorkload[];
   statistics: Statistics | null;
+  userOrders: RepairOrder[];
   loading: boolean;
   error: string | null;
   
@@ -24,8 +26,11 @@ interface AppState {
   removeFacility: (id: string) => void;
   
   setWorkers: (workers: Worker[]) => void;
+  setWorkerWorkloads: (workloads: WorkerWorkload[]) => void;
   
   setStatistics: (stats: Statistics) => void;
+  
+  setUserOrders: (orders: RepairOrder[]) => void;
   
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -38,7 +43,9 @@ export const useAppStore = create<AppState>()(
       repairOrders: [],
       facilities: [],
       workers: [],
+      workerWorkloads: [],
       statistics: null,
+      userOrders: [],
       loading: false,
       error: null,
       
@@ -69,8 +76,11 @@ export const useAppStore = create<AppState>()(
       })),
       
       setWorkers: (workers) => set({ workers }),
+      setWorkerWorkloads: (workloads) => set({ workerWorkloads: workloads }),
       
       setStatistics: (stats) => set({ statistics: stats }),
+      
+      setUserOrders: (orders) => set({ userOrders: orders }),
       
       setLoading: (loading) => set({ loading }),
       setError: (error) => set({ error }),

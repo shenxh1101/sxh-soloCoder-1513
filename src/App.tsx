@@ -4,6 +4,7 @@ import { useAppStore } from './store';
 import { Layout } from './components/Layout';
 import Login from './pages/Login';
 import RepairOrderList from './pages/RepairOrderList';
+import OrderDetail from './pages/OrderDetail';
 import ReportRepair from './pages/ReportRepair';
 import FacilityManagement from './pages/FacilityManagement';
 import Statistics from './pages/Statistics';
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <WorkerRoute>
               <RepairOrderList />
+            </WorkerRoute>
+          }
+        />
+        <Route
+          path="/orders/:id"
+          element={
+            <WorkerRoute>
+              <OrderDetail />
             </WorkerRoute>
           }
         />

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import bcrypt from 'bcryptjs';
-import { Worker, CreateWorkerRequest, LoginRequest, LoginResponse } from '../../shared/types';
+import { Worker, CreateWorkerRequest, LoginRequest, LoginResponse, WorkerWorkload } from '../../shared/types';
 
 const router = Router();
 
@@ -12,6 +12,67 @@ const mapToWorker = (row: any): Worker => ({
   role: row.role,
   avatar: row.avatar || undefined,
   createdAt: row.created_at,
+});
+
+router.get('/workload', (req: Request, res: Response) => {
+  try {
+    const workers = db.prepare(`
+      SELECT id, name FROM workers WHERE role = 'worker'
+    `).all() as { id: string; name: string }[];
+    
+    const workloads: WorkerWorkload[] = workers.map(worker => {
+      // 待处理工单数量（已派单但未开始）
+      const pendingResult = db.prepare(`
+        SELECT COUNT(*) as count FROM repair_orders 
+        WHERE assignee_id = ? AND status = 'assigned'
+      `).get(worker.id) as { count: number };
+      
+      // 进行中工单数量
+      const inProgressResult = db.prepare(`
+        SELECT COUNT(*) as count FROM repair_orders 
+        WHERE assignee_id = ? AND status = 'repairing'
+      `).get(worker.id) as { count: number };
+      
+      // 最近7天完成的工单
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const last7DaysResult = db.prepare(`
+        SELECT COUNT(*) as count FROM repair_orders 
+        WHERE assignee_id = ? AND status = 'completed' AND completed_at >= ?
+      `).get(worker.id, sevenDaysAgo) as { count: number };
+      
+      // 平均维修时间（最近30天已完成的工单）
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const avgResult = db.prepare(`
+        SELECT 
+          AVG(
+            (julianday(completed_at) - julianday(assigned_at)) * 24
+          ) as avg_hours
+        FROM repair_orders 
+        WHERE assignee_id = ? 
+          AND status = 'completed' 
+          AND completed_at >= ?
+          AND assigned_at IS NOT NULL
+          AND completed_at IS NOT NULL
+      `).get(worker.id, thirtyDaysAgo) as { avg_hours: number | null };
+      
+      return {
+        id: worker.id,
+        name: worker.name,
+        pendingCount: pendingResult.count,
+        inProgressCount: inProgressResult.count,
+        totalUncompleted: pendingResult.count + inProgressResult.count,
+        avgRepairHours: avgResult.avg_hours ? Math.round(avgResult.avg_hours * 10) / 10 : 0,
+        last7DaysCompleted: last7DaysResult.count,
+      };
+    });
+    
+    // 按未完成工单数量排序，负载低的排前面
+    workloads.sort((a, b) => a.totalUncompleted - b.totalUncompleted);
+    
+    res.json(workloads);
+  } catch (error) {
+    res.status(500).json({ error: '获取师傅负载信息失败' });
+  }
 });
 
 router.get('/', (req: Request, res: Response) => {

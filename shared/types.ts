@@ -14,10 +14,20 @@ export interface Facility {
   repairCount?: number;
 }
 
+export interface TimelineEvent {
+  status: OrderStatus;
+  label: string;
+  time: string;
+  description: string;
+  icon: string;
+}
+
 export interface RepairOrder {
   id: string;
   facilityId: string;
   facilityName: string;
+  facilityType?: FacilityType;
+  facilityLocation?: string;
   faultType: string;
   description: string;
   photoBefore: string;
@@ -29,8 +39,21 @@ export interface RepairOrder {
   assigneeName?: string;
   createdAt: string;
   assignedAt?: string;
+  startedAt?: string;
   completedAt?: string;
   isOverdue?: boolean;
+  expectedCompletion?: string;
+  timeline?: TimelineEvent[];
+}
+
+export interface WorkerWorkload {
+  id: string;
+  name: string;
+  pendingCount: number;
+  inProgressCount: number;
+  totalUncompleted: number;
+  avgRepairHours: number;
+  last7DaysCompleted: number;
 }
 
 export interface Worker {
@@ -47,12 +70,23 @@ export interface WorkerWithPassword extends Worker {
 }
 
 export interface Statistics {
-  facilityRanking: { facilityId: string; facilityName: string; count: number }[];
+  facilityRanking: { facilityId: string; facilityName: string; facilityType: FacilityType; count: number }[];
+  facilityTypeRanking: { facilityType: FacilityType; facilityTypeLabel: string; count: number }[];
+  locationRanking: { location: string; count: number }[];
   workerEfficiency: { workerId: string; workerName: string; avgRepairHours: number; completedCount: number }[];
   statusDistribution: { status: string; count: number; label: string }[];
+  monthlyTrend: { month: string; count: number }[];
   totalOrders: number;
   pendingOrders: number;
+  overdueOrders: number;
   completedToday: number;
+  avgRepairHours: number;
+}
+
+export interface StatisticsQuery {
+  facilityType?: FacilityType;
+  month?: string;
+  location?: string;
 }
 
 export interface CreateFacilityRequest {

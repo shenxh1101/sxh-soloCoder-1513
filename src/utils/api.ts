@@ -2,7 +2,9 @@ import type {
   Facility,
   RepairOrder,
   Worker,
+  WorkerWorkload,
   Statistics,
+  StatisticsQuery,
   CreateFacilityRequest,
   CreateRepairOrderRequest,
   AssignOrderRequest,
@@ -91,6 +93,8 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ status }),
       }),
+    getByPhone: (phone: string) =>
+      request<RepairOrder[]>(`/repair-orders/phone/${phone}`),
   },
 
   workers: {
@@ -98,6 +102,8 @@ export const api = {
       const query = role ? `?role=${role}` : '';
       return request<Worker[]>(`/workers${query}`);
     },
+    getWorkload: () =>
+      request<WorkerWorkload[]>('/workers/workload'),
     create: (data: CreateWorkerRequest) =>
       request<Worker>('/workers', {
         method: 'POST',
@@ -111,7 +117,12 @@ export const api = {
   },
 
   statistics: {
-    get: () => request<Statistics>('/statistics'),
+    get: (params?: StatisticsQuery) => {
+      const query = params
+        ? `?${new URLSearchParams(params as Record<string, string>).toString()}`
+        : '';
+      return request<Statistics>(`/statistics${query}`);
+    },
   },
 
   uploadPhoto: async (file: File): Promise<string> => {

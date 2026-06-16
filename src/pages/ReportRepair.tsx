@@ -9,12 +9,21 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronLeft,
+  Search,
+  Clock,
+  FileText,
+  History,
+  ArrowRight,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { api } from '../utils/api';
 import { PhotoUpload } from '../components/PhotoUpload';
 import { FacilityIcon } from '../components/FacilityIcon';
-import { FAULT_TYPES, FACILITY_TYPE_LABELS } from '../../shared/types';
-import type { Facility, FacilityType } from '../../shared/types';
+import { StatusBadge } from '../components/StatusBadge';
+import { FAULT_TYPES, FACILITY_TYPE_LABELS, STATUS_LABELS } from '../../shared/types';
+import type { Facility, FacilityType, RepairOrder } from '../../shared/types';
+import { formatDateTime, formatDate } from '../utils/format';
 
 export default function ReportRepair() {
   const { facilityId } = useParams<{ facilityId: string }>();
@@ -22,14 +31,21 @@ export default function ReportRepair() {
   const [facility, setFacility] = useState<Facility | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submittedOrder, setSubmittedOrder] = useState<RepairOrder | null>(null);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const [faultType, setFaultType] = useState('');
   const [description, setDescription] = useState('');
   const [photoBefore, setPhotoBefore] = useState('');
   const [reporterName, setReporterName] = useState('');
   const [reporterPhone, setReporterPhone] = useState('');
+
+  const [showQuery, setShowQuery] = useState(false);
+  const [queryPhone, setQueryPhone] = useState('');
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [userOrders, setUserOrders] = useState<RepairOrder[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<RepairOrder | null>(null);
 
   useEffect(() => {
     if (!facilityId) return;
@@ -65,7 +81,7 @@ export default function ReportRepair() {
 
     setSubmitting(true);
     try {
-      await api.repairOrders.create({
+      const order = await api.repairOrders.create({
         facilityId: facilityId!,
         faultType,
         description,
@@ -73,12 +89,61 @@ export default function ReportRepair() {
         reporterName,
         reporterPhone,
       });
-      setSubmitted(true);
+      setSubmittedOrder(order);
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交失败');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!queryPhone) {
+      setError('请输入手机号');
+      return;
+    }
+
+    setQueryLoading(true);
+    try {
+      const orders = await api.repairOrders.getByPhone(queryPhone);
+      setUserOrders(orders);
+      setSelectedOrder(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '查询失败');
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+
+  const copyOrderId = async (orderId: string) => {
+    try {
+      await navigator.clipboard.writeText(orderId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  };
+
+  const resetForm = () => {
+    setFaultType('');
+    setDescription('');
+    setPhotoBefore('');
+    setReporterName('');
+    setReporterPhone('');
+    setSubmittedOrder(null);
+    setError('');
+  };
+
+  const toggleQueryMode = () => {
+    setShowQuery(!showQuery);
+    setQueryPhone('');
+    setUserOrders([]);
+    setSelectedOrder(null);
+    setError('');
   };
 
   if (loading) {
@@ -89,7 +154,7 @@ export default function ReportRepair() {
     );
   }
 
-  if (error && !facility) {
+  if (error && !facility && !showQuery) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
@@ -109,7 +174,7 @@ export default function ReportRepair() {
     );
   }
 
-  if (submitted) {
+  if (submittedOrder) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
@@ -118,22 +183,326 @@ export default function ReportRepair() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">提交成功！</h2>
           <p className="text-gray-500 mb-6">
-            您的报修已提交，我们会尽快安排维修师傅处理。感谢您的反馈！
+            您的报修已提交，我们会尽快安排维修师傅处理。
           </p>
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
-            <p className="text-sm text-gray-600">
-              <span className="font-medium">设施：</span>{facility?.name}
-            </p>
-            <p className="text-sm text-gray-600 mt-1">
-              <span className="font-medium">故障：</span>{faultType}
+
+          <div className="bg-blue-50 rounded-xl p-5 mb-6 text-left">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-gray-500">报修编号</span>
+              <button
+                onClick={() => copyOrderId(submittedOrder.id)}
+                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+              >
+                {copied ? (
+                  <><Check className="w-3 h-3" /> 已复制</>
+                ) : (
+                  <><Copy className="w-3 h-3" /> 复制</>
+                )}
+              </button>
+            </div>
+            <p className="text-xl font-bold text-blue-700 font-mono tracking-wide">
+              {submittedOrder.id}
             </p>
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            继续报修
-          </button>
+
+          <div className="bg-gray-50 rounded-xl p-5 mb-6 text-left space-y-3">
+            <p className="text-sm">
+              <span className="text-gray-500">设施：</span>
+              <span className="font-medium text-gray-900">{facility?.name}</span>
+            </p>
+            <p className="text-sm">
+              <span className="text-gray-500">故障：</span>
+              <span className="font-medium text-gray-900">{faultType}</span>
+            </p>
+            {submittedOrder.expectedCompletion && (
+              <p className="text-sm flex items-center gap-1">
+                <Clock className="w-4 h-4 text-green-500" />
+                <span className="text-gray-500">预计处理：</span>
+                <span className="font-medium text-green-600">
+                  {formatDate(submittedOrder.expectedCompletion)} 前
+                </span>
+              </p>
+            )}
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 text-left">
+            <p className="text-sm text-yellow-800">
+              <span className="font-medium">温馨提示：</span>
+              您可以再次扫码或拨打物业服务电话查询维修进度。如果留有手机号，也可以在下方"我的报修"中查看。
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <button
+              onClick={resetForm}
+              className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              继续报修
+            </button>
+            {reporterPhone && (
+              <button
+                onClick={() => {
+                  setQueryPhone(reporterPhone);
+                  setShowQuery(true);
+                  setSubmittedOrder(null);
+                }}
+                className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+              >
+                <History className="w-4 h-4" />
+                查看我的报修
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (showQuery) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-50">
+        <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm border-b border-gray-200">
+          <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (selectedOrder) {
+                  setSelectedOrder(null);
+                } else if (userOrders.length > 0) {
+                  setUserOrders([]);
+                } else {
+                  toggleQueryMode();
+                }
+              }}
+              className="p-2 -ml-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <h1 className="font-semibold text-gray-900">
+              {selectedOrder ? '报修详情' : '我的报修'}
+            </h1>
+          </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          {!selectedOrder && !userOrders.length && (
+            <form onSubmit={handleQuery} className="space-y-6">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Search className="w-8 h-8 text-blue-600" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900">查询报修记录</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    输入您报修时填写的手机号，查看历史报修记录
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-1">
+                    <Phone className="w-4 h-4" />
+                    手机号
+                  </label>
+                  <input
+                    type="tel"
+                    value={queryPhone}
+                    onChange={(e) => setQueryPhone(e.target.value)}
+                    placeholder="请输入报修时填写的手机号"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                  />
+                </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-lg text-sm mt-4">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={queryLoading}
+                  className="w-full py-3 mt-6 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+                >
+                  <Search className="w-5 h-5" />
+                  {queryLoading ? '查询中...' : '查询报修记录'}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={toggleQueryMode}
+                className="w-full py-2.5 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                返回报修
+              </button>
+            </form>
+          )}
+
+          {!selectedOrder && userOrders.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  找到 <span className="font-medium text-gray-900">{userOrders.length}</span> 条报修记录
+                </p>
+                <span className="text-sm text-blue-600 font-medium">{queryPhone}</span>
+              </div>
+
+              {userOrders.map((order) => (
+                <div
+                  key={order.id}
+                  onClick={() => setSelectedOrder(order)}
+                  className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{order.facilityName}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 font-mono">{order.id}</p>
+                    </div>
+                    <StatusBadge status={order.status} isOverdue={order.isOverdue} />
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">{order.faultType}</span>
+                    <span className="text-gray-400">{formatDateTime(order.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center justify-end mt-2 text-blue-600 text-sm">
+                    查看详情 <ArrowRight className="w-4 h-4 ml-1" />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={toggleQueryMode}
+                className="w-full py-2.5 text-gray-600 hover:text-gray-800 transition-colors mt-4"
+              >
+                返回报修
+              </button>
+            </div>
+          )}
+
+          {selectedOrder && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">报修编号</p>
+                    <p className="font-mono font-medium text-gray-900">{selectedOrder.id}</p>
+                  </div>
+                  <StatusBadge status={selectedOrder.status} isOverdue={selectedOrder.isOverdue} />
+                </div>
+
+                <div className="border-t border-gray-100 pt-4 space-y-3">
+                  <p className="text-sm">
+                    <span className="text-gray-500">设施名称：</span>
+                    <span className="font-medium text-gray-900">{selectedOrder.facilityName}</span>
+                  </p>
+                  {selectedOrder.facilityLocation && (
+                    <p className="text-sm flex items-center gap-1">
+                      <MapPin className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-500">位置：</span>
+                      <span className="text-gray-900">{selectedOrder.facilityLocation}</span>
+                    </p>
+                  )}
+                  <p className="text-sm">
+                    <span className="text-gray-500">故障类型：</span>
+                    <span className="font-medium text-gray-900">{selectedOrder.faultType}</span>
+                  </p>
+                  {selectedOrder.description && (
+                    <p className="text-sm">
+                      <span className="text-gray-500">详细描述：</span>
+                      <span className="text-gray-900">{selectedOrder.description}</span>
+                    </p>
+                  )}
+                  <p className="text-sm flex items-center gap-1">
+                    <Clock className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-500">提交时间：</span>
+                    <span className="text-gray-900">{formatDateTime(selectedOrder.createdAt)}</span>
+                  </p>
+                  {selectedOrder.assigneeName && (
+                    <p className="text-sm">
+                      <span className="text-gray-500">维修师傅：</span>
+                      <span className="font-medium text-gray-900">{selectedOrder.assigneeName}</span>
+                    </p>
+                  )}
+                  {selectedOrder.expectedCompletion && selectedOrder.status !== 'completed' && (
+                    <div className="bg-blue-50 rounded-lg p-3 mt-3">
+                      <p className="text-sm text-blue-700 flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        预计完成时间：{formatDate(selectedOrder.expectedCompletion)}
+                      </p>
+                    </div>
+                  )}
+                  {selectedOrder.completedAt && (
+                    <div className="bg-green-50 rounded-lg p-3 mt-3">
+                      <p className="text-sm text-green-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4" />
+                        完成时间：{formatDateTime(selectedOrder.completedAt)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  处理进度
+                </h3>
+                <div className="relative">
+                  <div className="absolute left-[18px] top-2 bottom-2 w-0.5 bg-gray-200"></div>
+                  {selectedOrder.timeline?.map((event, index) => (
+                    <div key={index} className="relative flex gap-4 pb-5 last:pb-0">
+                      <div className={`relative z-10 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        event.status === selectedOrder.status
+                          ? 'bg-blue-500 ring-4 ring-blue-100'
+                          : index < (selectedOrder.timeline?.findIndex(e => e.status === selectedOrder.status) || 0)
+                          ? 'bg-green-500'
+                          : 'bg-gray-300'
+                      }`}>
+                        <span className="text-white text-xs font-bold">{index + 1}</span>
+                      </div>
+                      <div className="flex-1 pt-1">
+                        <p className={`font-medium text-sm ${
+                          event.status === selectedOrder.status ? 'text-blue-600' : 'text-gray-900'
+                        }`}>
+                          {event.label}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">{formatDateTime(event.time)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {selectedOrder.photoBefore && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                  <h3 className="font-semibold text-gray-900 mb-3">故障照片</h3>
+                  <img
+                    src={selectedOrder.photoBefore}
+                    alt="故障照片"
+                    className="w-full rounded-lg aspect-video object-cover"
+                  />
+                </div>
+              )}
+
+              {selectedOrder.photoAfter && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                  <h3 className="font-semibold text-gray-900 mb-3">维修后照片</h3>
+                  <img
+                    src={selectedOrder.photoAfter}
+                    alt="维修后照片"
+                    className="w-full rounded-lg aspect-video object-cover"
+                  />
+                </div>
+              )}
+
+              <button
+                onClick={() => setSelectedOrder(null)}
+                className="w-full py-2.5 text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                返回列表
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -152,6 +521,13 @@ export default function ReportRepair() {
             <ChevronLeft className="w-5 h-5" />
           </button>
           <h1 className="font-semibold text-gray-900">设施报修</h1>
+          <button
+            onClick={toggleQueryMode}
+            className="ml-auto flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 px-3 py-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+          >
+            <History className="w-4 h-4" />
+            我的报修
+          </button>
         </div>
       </div>
 
@@ -229,7 +605,10 @@ export default function ReportRepair() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-blue-600" />
-              您的信息（选填）
+              您的信息
+              <span className="text-xs text-gray-400 font-normal ml-1">
+                （填写手机号可查询维修进度）
+              </span>
             </h3>
 
             <div className="space-y-4">

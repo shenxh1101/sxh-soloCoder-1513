@@ -50,16 +50,35 @@ export function initDatabase() {
       assignee_name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       assigned_at DATETIME,
+      started_at DATETIME,
       completed_at DATETIME,
       FOREIGN KEY (facility_id) REFERENCES facilities(id),
       FOREIGN KEY (assignee_id) REFERENCES workers(id)
     );
+
+    -- 检查并添加 started_at 列（如果不存在）
+    -- 这部分在 SQLite 中需要单独执行
+    -- 我们会在应用启动时检查并迁移
 
     CREATE INDEX IF NOT EXISTS idx_repair_orders_status ON repair_orders(status);
     CREATE INDEX IF NOT EXISTS idx_repair_orders_facility ON repair_orders(facility_id);
     CREATE INDEX IF NOT EXISTS idx_repair_orders_assignee ON repair_orders(assignee_id);
     CREATE INDEX IF NOT EXISTS idx_repair_orders_created ON repair_orders(created_at);
   `);
+
+  // 数据库迁移：添加 started_at 列
+  try {
+    db.prepare('ALTER TABLE repair_orders ADD COLUMN started_at DATETIME').run();
+  } catch (e) {
+    // 列已存在，忽略错误
+  }
+
+  // 数据库迁移：添加 reporter_phone 索引用于查询
+  try {
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_repair_orders_reporter_phone ON repair_orders(reporter_phone)').run();
+  } catch (e) {
+    // 索引已存在，忽略错误
+  }
 
   const workerCount = db.prepare('SELECT COUNT(*) as count FROM workers').get() as { count: number };
   if (workerCount.count === 0) {
